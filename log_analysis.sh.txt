@@ -1,0 +1,64 @@
+#!/bin/bash
+
+logfile="sample_log.log"
+
+echo "Analyzing log file: $logfile"
+echo "-----------------------------------"
+
+total_requests=$(wc -l < "$logfile")
+get_requests=$(grep '"GET' "$logfile" | wc -l)
+post_requests=$(grep '"POST' "$logfile" | wc -l)
+
+echo "Total Requests: $total_requests"
+echo "GET Requests: $get_requests"
+echo "POST Requests: $post_requests"
+echo ""
+
+echo "Unique IPs and their GET/POST counts:"
+awk '{ip=$1; method=$6; sub(/"/, "", method); ip_method[ip][method]++} END {
+  for (ip in ip_method) {
+    print ip, "- GET:", ip_method[ip]["GET"]+0, "POST:", ip_method[ip]["POST"]+0
+  }
+}' "$logfile"
+echo ""
+
+failures=$(awk '$9 ~ /^4|^5/ {count++} END {print count+0}' "$logfile")
+fail_percent=$(awk -v f="$failures" -v t="$total_requests" 'BEGIN {printf "%.2f", (f/t)*100}')
+echo "Failure Requests (4xx/5xx): $failures"
+echo "Failure Percentage: $fail_percent%"
+echo ""
+
+echo -n "Most Active IP: "
+awk '{print $1}' "$logfile" | sort | uniq -c | sort -nr | head -1
+echo ""
+
+echo -n "Average Requests per Day: "
+awk -F'[:/[]' '{count[$3]++} END {total=0; days=0; for (d in count) {total+=count[d]; days++}; print total/days}' "$logfile"
+echo ""
+
+echo "Days with highest failures:"
+awk -F'[:/[]' '$9 ~ /^4|^5/ {fail[$3]++} END {for (d in fail) print d, fail[d]}' "$logfile" | sort -k2 -nr
+echo ""
+
+echo "Requests per hour:"
+awk -F'[:[]' '{hour=substr($2,1,2); count[hour]++} END {for (h in count) print h ":00 -", count[h]}' "$logfile" | sort
+echo ""
+
+echo "Status Code Breakdown:"
+awk '{code=$9; status[code]++} END {for (s in status) print s, "-", status[s]}' "$logfile" | sort
+echo ""
+
+echo "Most Active IPs by Method:"
+for method in GET POST; do
+  echo -n "$method: "
+  grep "\"$method" "$logfile" | awk '{print $1}' | sort | uniq -c | sort -nr | head -1
+done
+echo ""
+
+echo "Failure Patterns (hourly):"
+awk -F'[:[]' '$9 ~ /^4|^5/ {hour=substr($2,1,2); fail[hour]++} END {for (h in fail) print h ":00 -", fail[h]}' "$logfile" | sort
+echo ""
+
+echo "Failure Patterns (daily):"
+awk -F'[:/[]' '$9 ~ /^4|^5/ {day=$3; fail[day]++} END {for (d in fail) print d, fail[d]}' "$logfile" | sort
+echo ""
